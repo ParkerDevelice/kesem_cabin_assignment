@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Camp Cabin Assigner{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bark:    #2C1810;
+      --pine:    #1E3A2F;
+      --moss:    #4A6741;
+      --sage:    #7A9E6E;
+      --cream:   #F5F0E8;
+      --sand:    #E8DFC8;
+      --amber:   #C87941;
+      --ember:   #A0522D;
+      --sky:     #5B8FA8;
+      --error:   #8B2E2E;
+      --success: #2E5E3A;
+      --text:    #1A1208;
+      --muted:   #6B5A47;
+      --border:  #C8B99A;
+      --white:   #FDFAF5;
+
+      --radius: 6px;
+      --shadow: 0 2px 8px rgba(44,24,16,0.12);
+      --shadow-lg: 0 6px 24px rgba(44,24,16,0.18);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Source Sans 3', sans-serif;
+      background: var(--cream);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Texture overlay ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='4' height='4' fill='none'/%3E%3Ccircle cx='1' cy='1' r='0.5' fill='rgba(44,24,16,0.04)'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--pine);
+      color: var(--cream);
+      padding: 0 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+      box-shadow: 0 3px 12px rgba(0,0,0,0.3);
+      position: relative;
+      z-index: 10;
+    }
+
+    .logo {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.4rem;
+      letter-spacing: 0.02em;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      text-decoration: none;
+      color: var(--cream);
+    }
+
+    .logo-icon { font-size: 1.6rem; }
+
+    nav a {
+      color: var(--sage);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.3rem 0.8rem;
+      border-radius: var(--radius);
+      transition: all 0.15s;
+    }
+    nav a:hover { color: var(--cream); background: rgba(255,255,255,0.08); }
+
+    /* ── Page wrapper ── */
+    .page { max-width: 1200px; margin: 0 auto; padding: 2rem; position: relative; z-index: 1; }
+
+    /* ── Section Cards ── */
+    .card {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      margin-bottom: 1.5rem;
+    }
+
+    .card-header {
+      background: var(--sand);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 1.4rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .card-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.15rem;
+      color: var(--bark);
+    }
+
+    .card-body { padding: 1.4rem; }
+
+    /* ── Grid ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; }
+
+    @media (max-width: 768px) {
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    }
+
+    /* ── Forms ── */
+    .form-row {
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .form-group { display: flex; flex-direction: column; gap: 0.3rem; flex: 1; min-width: 120px; }
+    .form-group label { font-size: 0.8rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+    input[type="text"], input[type="number"], select {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.5rem 0.75rem;
+      font-family: inherit;
+      font-size: 0.95rem;
+      color: var(--text);
+      background: var(--white);
+      transition: border-color 0.15s, box-shadow 0.15s;
+      width: 100%;
+    }
+
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--moss);
+      box-shadow: 0 0 0 3px rgba(74,103,65,0.15);
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.5rem 1.1rem;
+      border-radius: var(--radius);
+      border: none;
+      font-family: inherit;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .btn-primary { background: var(--moss); color: #fff; }
+    .btn-primary:hover { background: var(--pine); }
+
+    .btn-amber { background: var(--amber); color: #fff; }
+    .btn-amber:hover { background: var(--ember); }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { background: var(--sand); color: var(--text); }
+
+    .btn-danger { background: var(--error); color: #fff; }
+    .btn-danger:hover { filter: brightness(0.88); }
+
+    .btn-sm { padding: 0.3rem 0.7rem; font-size: 0.82rem; }
+
+    /* ── Table ── */
+    table { width: 100%; border-collapse: collapse; font-size: 0.93rem; }
+    th { background: var(--sand); color: var(--bark); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.65rem 1rem; text-align: left; border-bottom: 2px solid var(--border); }
+    td { padding: 0.65rem 1rem; border-bottom: 1px solid rgba(200,185,154,0.4); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(245,240,232,0.6); }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.55rem;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .badge-green { background: rgba(46,94,58,0.15); color: var(--success); }
+    .badge-red   { background: rgba(139,46,46,0.12); color: var(--error); }
+    .badge-amber { background: rgba(200,121,65,0.15); color: var(--ember); }
+    .badge-sky   { background: rgba(91,143,168,0.15); color: var(--sky); }
+
+    /* ── Alerts / Flash ── */
+    .flash-container { margin-bottom: 1rem; }
+    .flash {
+      padding: 0.75rem 1.1rem;
+      border-radius: var(--radius);
+      font-size: 0.92rem;
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .flash-success { background: rgba(46,94,58,0.12); color: var(--success); border-left: 3px solid var(--success); }
+    .flash-error   { background: rgba(139,46,46,0.12); color: var(--error);   border-left: 3px solid var(--error); }
+
+    /* ── Section heading ── */
+    .section-intro {
+      font-size: 0.9rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+      line-height: 1.5;
+    }
+
+    /* ── Empty state ── */
+    .empty {
+      text-align: center;
+      padding: 2rem;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(44,24,16,0.45);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+      width: 480px;
+      max-width: 95vw;
+      overflow: hidden;
+    }
+    .modal-header {
+      background: var(--pine);
+      color: var(--cream);
+      padding: 1rem 1.4rem;
+      font-family: 'Playfair Display', serif;
+      font-size: 1.05rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--cream);
+      font-size: 1.3rem;
+      cursor: pointer;
+      line-height: 1;
+      opacity: 0.7;
+    }
+    .modal-close:hover { opacity: 1; }
+    .modal-body { padding: 1.4rem; }
+    .modal-footer { padding: 0 1.4rem 1.4rem; display: flex; justify-content: flex-end; gap: 0.6rem; }
+
+    /* ── Divider ── */
+    .divider { border: none; border-top: 1px solid var(--border); margin: 1.2rem 0; }
+
+    /* ── Ratio display ── */
+    .ratio-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: var(--pine);
+      color: var(--cream);
+      padding: 0.35rem 0.9rem;
+      border-radius: 20px;
+      font-size: 0.88rem;
+      font-weight: 600;
+    }
+
+    .page-hero {
+      text-align: center;
+      padding: 2rem 1rem 1.5rem;
+    }
+    .page-hero h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: 2rem;
+      color: var(--bark);
+      margin-bottom: 0.4rem;
+    }
+    .page-hero p { color: var(--muted); font-size: 1rem; }
+
+    .actions-bar {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="{{ url_for('index') }}" class="logo">
+      <span class="logo-icon">🏕️</span> Camp Cabin Assigner
+    </a>
+    <nav>
+      <a href="{{ url_for('index') }}">Dashboard</a>
+    </nav>
+  </header>
+
+  <main class="page">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-container">
+          {% for category, message in messages %}
+            <div class="flash flash-{{ category }}">
+              {{ '✓' if category == 'success' else '⚠' }} {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

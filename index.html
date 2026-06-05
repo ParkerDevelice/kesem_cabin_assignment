@@ -1,0 +1,397 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard — Camp Cabin Assigner{% endblock %}
+
+{% block content %}
+
+<div class="page-hero">
+  <h1>Cabin Assignment Manager</h1>
+  <p>Configure units, cabins, and generate assignments in one place.</p>
+</div>
+
+<div class="grid-2">
+
+  <!-- ═══ LEFT COLUMN ══════════════════════════════════════════════ -->
+  <div>
+
+    <!-- SETTINGS -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">⚙️ Counselor Ratio</span>
+        <span class="ratio-badge">1 : {{ settings.camper_to_counselor_ratio }}</span>
+      </div>
+      <div class="card-body">
+        <p class="section-intro">Set the minimum required ratio of campers per counselor. Assignments will flag any unit that doesn't meet this threshold.</p>
+        <form method="POST" action="{{ url_for('update_settings') }}">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Campers per Counselor</label>
+              <input type="number" name="ratio" value="{{ settings.camper_to_counselor_ratio }}" min="1" max="100" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Ratio</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- UNITS -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">👥 Units</span>
+        <button class="btn btn-primary btn-sm" onclick="openModal('addUnitModal')">+ Add Unit</button>
+      </div>
+      <div class="card-body" style="padding: 0;">
+        {% if units %}
+          <table>
+            <thead>
+              <tr>
+                <th>Unit Name</th>
+                <th>Campers</th>
+                <th>Counselors</th>
+                <th>Total</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for u in units %}
+              <tr>
+                <td><strong>{{ u.name }}</strong></td>
+                <td>{{ u.camper_count }}</td>
+                <td>{{ u.counselor_count }}</td>
+                <td><span class="badge badge-sky">{{ u.total_people() }}</span></td>
+                <td>
+                  <div class="actions-bar">
+                    <button class="btn btn-ghost btn-sm" onclick="openEditUnit({{ u.id }}, '{{ u.name }}', {{ u.camper_count }}, {{ u.counselor_count }})">Edit</button>
+                    <form method="POST" action="{{ url_for('delete_unit', unit_id=u.id) }}" onsubmit="return confirm('Delete unit {{ u.name }}?')">
+                      <button class="btn btn-danger btn-sm">✕</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="empty">No units yet — add one above.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- PAST ASSIGNMENTS -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">📋 Recent Assignments</span>
+      </div>
+      <div class="card-body" style="padding: 0;">
+        {% if assignments %}
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Created</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for a in assignments %}
+              <tr>
+                <td>{{ a.name }}</td>
+                <td style="color: var(--muted); font-size: 0.85rem;">{{ a.created_at.strftime('%b %d, %Y %H:%M') if a.created_at else '—' }}</td>
+                <td>
+                  <div class="actions-bar">
+                    <a href="{{ url_for('view_assignment', assignment_id=a.id) }}" class="btn btn-ghost btn-sm">View</a>
+                    <form method="POST" action="{{ url_for('delete_assignment', assignment_id=a.id) }}" onsubmit="return confirm('Delete this assignment?')">
+                      <button class="btn btn-danger btn-sm">✕</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="empty">No assignments generated yet.</div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ RIGHT COLUMN ══════════════════════════════════════════════ -->
+  <div>
+
+    <!-- CABINS -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🛖 Cabins</span>
+        <button class="btn btn-primary btn-sm" onclick="openModal('addCabinModal')">+ Add Cabin</button>
+      </div>
+      <div class="card-body" style="padding: 0;">
+        {% if cabins %}
+          <table>
+            <thead>
+              <tr><th>Cabin Name</th><th>Capacity</th><th>Group</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for c in cabins %}
+              <tr>
+                <td><strong>{{ c.name }}</strong></td>
+                <td>{{ c.capacity }}</td>
+                <td>
+                  {% if c.group %}
+                    <span class="badge badge-amber">{{ c.group.name }}</span>
+                  {% else %}
+                    <span style="color: var(--muted); font-size: 0.85rem;">—</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <div class="actions-bar">
+                    <button class="btn btn-ghost btn-sm" onclick="openEditCabin({{ c.id }}, '{{ c.name }}', {{ c.capacity }})">Edit</button>
+                    <form method="POST" action="{{ url_for('delete_cabin', cabin_id=c.id) }}" onsubmit="return confirm('Delete cabin {{ c.name }}?')">
+                      <button class="btn btn-danger btn-sm">✕</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="empty">No cabins yet — add one above.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- CABIN GROUPS -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🔗 Combined Cabin Groups</span>
+        <button class="btn btn-amber btn-sm" onclick="openModal('addGroupModal')">+ New Group</button>
+      </div>
+      <div class="card-body">
+        <p class="section-intro">Mark cabins that can open into each other and function as one larger space. Grouped cabins will be treated as a single unit with their combined capacity during assignment.</p>
+        {% if groups %}
+          {% for g in groups %}
+          <div style="border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin-bottom: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <strong style="font-family: 'Playfair Display', serif;">{{ g.name }}</strong>
+              <div class="actions-bar">
+                <span class="badge badge-amber">Combined: {{ g.combined_capacity() }} people</span>
+                <form method="POST" action="{{ url_for('delete_group', group_id=g.id) }}" onsubmit="return confirm('Remove group {{ g.name }}?')">
+                  <button class="btn btn-danger btn-sm">✕</button>
+                </form>
+              </div>
+            </div>
+            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+              {% for c in g.cabins %}
+                <span class="badge badge-green">{{ c.name }} ({{ c.capacity }})</span>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty">No cabin groups defined.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- GENERATE -->
+    <div class="card" style="background: var(--pine); color: var(--cream); border-color: var(--bark);">
+      <div class="card-body" style="text-align: center; padding: 1.8rem;">
+        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🏕️</div>
+        <h2 style="font-family: 'Playfair Display', serif; font-size: 1.4rem; margin-bottom: 0.5rem; color: var(--cream);">Generate Cabin Assignments</h2>
+        <p style="color: var(--sage); margin-bottom: 1.2rem; font-size: 0.92rem;">Assign all units to available cabins based on headcount and counselor ratios.</p>
+        <form method="POST" action="{{ url_for('assign') }}" style="display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap;">
+          <input type="text" name="assignment_name" placeholder="Assignment name…" style="background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.2); color: var(--cream); width: 200px;">
+          <button type="submit" class="btn btn-amber" {% if not units or not cabins %}disabled title="Add units and cabins first"{% endif %}>
+            Generate Assignments →
+          </button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ═══ MODALS ══════════════════════════════════════════════════════════ -->
+
+<!-- Add Unit -->
+<div class="modal-overlay" id="addUnitModal">
+  <div class="modal">
+    <div class="modal-header">
+      Add Unit
+      <button class="modal-close" onclick="closeModal('addUnitModal')">✕</button>
+    </div>
+    <form method="POST" action="{{ url_for('add_unit') }}">
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom: 0.9rem;">
+          <label>Unit Name</label>
+          <input type="text" name="name" placeholder="e.g. Bunk 3 — Wolves" required autofocus>
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Number of Campers</label>
+            <input type="number" name="camper_count" min="0" value="0" required>
+          </div>
+          <div class="form-group">
+            <label>Number of Counselors</label>
+            <input type="number" name="counselor_count" min="0" value="0" required>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('addUnitModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add Unit</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Unit -->
+<div class="modal-overlay" id="editUnitModal">
+  <div class="modal">
+    <div class="modal-header">
+      Edit Unit
+      <button class="modal-close" onclick="closeModal('editUnitModal')">✕</button>
+    </div>
+    <form method="POST" id="editUnitForm">
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom: 0.9rem;">
+          <label>Unit Name</label>
+          <input type="text" name="name" id="editUnitName" required>
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Number of Campers</label>
+            <input type="number" name="camper_count" id="editUnitCampers" min="0" required>
+          </div>
+          <div class="form-group">
+            <label>Number of Counselors</label>
+            <input type="number" name="counselor_count" id="editUnitCounselors" min="0" required>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('editUnitModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Add Cabin -->
+<div class="modal-overlay" id="addCabinModal">
+  <div class="modal">
+    <div class="modal-header">
+      Add Cabin
+      <button class="modal-close" onclick="closeModal('addCabinModal')">✕</button>
+    </div>
+    <form method="POST" action="{{ url_for('add_cabin') }}">
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom: 0.9rem;">
+          <label>Cabin Name</label>
+          <input type="text" name="name" placeholder="e.g. Pinecrest A" required autofocus>
+        </div>
+        <div class="form-group">
+          <label>Capacity (total people)</label>
+          <input type="number" name="capacity" min="1" value="10" required>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('addCabinModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add Cabin</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Cabin -->
+<div class="modal-overlay" id="editCabinModal">
+  <div class="modal">
+    <div class="modal-header">
+      Edit Cabin
+      <button class="modal-close" onclick="closeModal('editCabinModal')">✕</button>
+    </div>
+    <form method="POST" id="editCabinForm">
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom: 0.9rem;">
+          <label>Cabin Name</label>
+          <input type="text" name="name" id="editCabinName" required>
+        </div>
+        <div class="form-group">
+          <label>Capacity</label>
+          <input type="number" name="capacity" id="editCabinCapacity" min="1" required>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('editCabinModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Add Group -->
+<div class="modal-overlay" id="addGroupModal">
+  <div class="modal">
+    <div class="modal-header">
+      Create Cabin Group
+      <button class="modal-close" onclick="closeModal('addGroupModal')">✕</button>
+    </div>
+    <form method="POST" action="{{ url_for('add_group') }}">
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom: 0.9rem;">
+          <label>Group Name</label>
+          <input type="text" name="name" placeholder="e.g. Pinecrest Combined" required autofocus>
+        </div>
+        <div class="form-group">
+          <label>Select Cabins (hold Ctrl/Cmd for multiple)</label>
+          {% if cabins %}
+          <select name="cabin_ids" multiple size="{{ [cabins|length, 6]|min }}" style="height: auto; padding: 0.4rem;">
+            {% for c in cabins %}
+            <option value="{{ c.id }}">{{ c.name }} — capacity {{ c.capacity }}</option>
+            {% endfor %}
+          </select>
+          <small style="color: var(--muted); font-size: 0.8rem; margin-top: 0.3rem; display: block;">Select at least 2 cabins to form a group.</small>
+          {% else %}
+          <p style="color: var(--muted); font-size: 0.9rem;">No cabins available. Add cabins first.</p>
+          {% endif %}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('addGroupModal')">Cancel</button>
+        <button type="submit" class="btn btn-amber" {% if not cabins %}disabled{% endif %}>Create Group</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function openModal(id) {
+    document.getElementById(id).classList.add('open');
+  }
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('open');
+  }
+  // Close on backdrop click
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) overlay.classList.remove('open');
+    });
+  });
+
+  function openEditUnit(id, name, campers, counselors) {
+    document.getElementById('editUnitForm').action = `/units/${id}/edit`;
+    document.getElementById('editUnitName').value = name;
+    document.getElementById('editUnitCampers').value = campers;
+    document.getElementById('editUnitCounselors').value = counselors;
+    openModal('editUnitModal');
+  }
+
+  function openEditCabin(id, name, capacity) {
+    document.getElementById('editCabinForm').action = `/cabins/${id}/edit`;
+    document.getElementById('editCabinName').value = name;
+    document.getElementById('editCabinCapacity').value = capacity;
+    openModal('editCabinModal');
+  }
+</script>
+{% endblock %}

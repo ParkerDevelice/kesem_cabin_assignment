@@ -1,0 +1,135 @@
+{% extends 'base.html' %}
+{% block title %}{{ assignment.name }} — Assignments{% endblock %}
+
+{% block content %}
+
+<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 0.75rem;">
+  <div>
+    <a href="{{ url_for('index') }}" style="color: var(--muted); text-decoration: none; font-size: 0.85rem;">← Back to Dashboard</a>
+    <h1 style="font-family: 'Playfair Display', serif; font-size: 1.8rem; color: var(--bark); margin-top: 0.25rem;">{{ assignment.name }}</h1>
+    {% if assignment.created_at %}
+    <p style="color: var(--muted); font-size: 0.88rem;">Generated {{ assignment.created_at.strftime('%B %d, %Y at %H:%M') }}</p>
+    {% endif %}
+  </div>
+  <div class="actions-bar">
+    <button onclick="window.print()" class="btn btn-ghost">🖨 Print</button>
+    <form method="POST" action="{{ url_for('delete_assignment', assignment_id=assignment.id) }}" onsubmit="return confirm('Delete this assignment?')">
+      <button class="btn btn-danger">Delete</button>
+    </form>
+  </div>
+</div>
+
+<!-- Summary row -->
+{% set ok_count = results | selectattr('ok') | list | length %}
+{% set fail_count = results | rejectattr('ok') | list | length %}
+<div class="grid-3" style="margin-bottom: 1.5rem;">
+  <div class="card" style="text-align: center;">
+    <div class="card-body">
+      <div style="font-size: 2rem; font-weight: 700; font-family: 'Playfair Display', serif; color: var(--moss);">{{ results | length }}</div>
+      <div style="font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;">Units Total</div>
+    </div>
+  </div>
+  <div class="card" style="text-align: center;">
+    <div class="card-body">
+      <div style="font-size: 2rem; font-weight: 700; font-family: 'Playfair Display', serif; color: var(--success);">{{ ok_count }}</div>
+      <div style="font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;">Assigned</div>
+    </div>
+  </div>
+  <div class="card" style="text-align: center; {% if fail_count > 0 %}border-color: var(--error);{% endif %}">
+    <div class="card-body">
+      <div style="font-size: 2rem; font-weight: 700; font-family: 'Playfair Display', serif; color: {{ 'var(--error)' if fail_count > 0 else 'var(--muted)' }};">{{ fail_count }}</div>
+      <div style="font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;">Unassigned</div>
+    </div>
+  </div>
+</div>
+
+<!-- Errors / warnings -->
+{% if errors %}
+<div class="card" style="border-color: var(--ember); margin-bottom: 1.5rem;">
+  <div class="card-header" style="background: rgba(200,121,65,0.1);">
+    <span class="card-title" style="color: var(--ember);">⚠️ Counselor Ratio Warnings</span>
+  </div>
+  <div class="card-body">
+    {% for err in errors %}
+    <div class="flash flash-error" style="margin-bottom: 0.4rem;">⚠ {{ err }}</div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Results table -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">🏕️ Cabin Assignments</span>
+  </div>
+  <div class="card-body" style="padding: 0;">
+    {% if results %}
+    <table>
+      <thead>
+        <tr>
+          <th>Unit</th>
+          <th>Campers</th>
+          <th>Counselors</th>
+          <th>Min. Required</th>
+          <th>Assigned Space</th>
+          <th>Capacity</th>
+          <th>Overflow</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr>
+          <td><strong>{{ r.unit }}</strong></td>
+          <td>{{ r.campers }}</td>
+          <td>
+            {{ r.counselors }}
+            {% if r.counselors < r.min_counselors_required %}
+              <span class="badge badge-red" title="Below required ratio">!</span>
+            {% endif %}
+          </td>
+          <td style="color: var(--muted);">{{ r.min_counselors_required }}</td>
+          <td>
+            {% if r.space %}
+              {{ r.space }}
+            {% else %}
+              <span style="color: var(--error); font-style: italic;">None available</span>
+            {% endif %}
+          </td>
+          <td>{{ r.capacity if r.capacity is not none else '—' }}</td>
+          <td>
+            {% if r.overflow is not none %}
+              {% if r.overflow == 0 %}
+                <span class="badge badge-green">Exact fit</span>
+              {% elif r.overflow > 0 %}
+                <span class="badge badge-sky">+{{ r.overflow }} free</span>
+              {% endif %}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>
+            {% if r.ok %}
+              <span class="badge badge-green">✓ Assigned</span>
+            {% else %}
+              <span class="badge badge-red">✗ Failed</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="empty">No results to display.</div>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+  @media print {
+    header, .actions-bar, .btn { display: none !important; }
+    .page { padding: 0; }
+    .card { box-shadow: none; border: 1px solid #ccc; }
+  }
+</style>
+{% endblock %}

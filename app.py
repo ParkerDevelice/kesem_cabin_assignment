@@ -1,8 +1,7 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 import json
 import math
-from itertools import combinations
 import os
 
 app = Flask(__name__)

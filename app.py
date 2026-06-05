@@ -95,13 +95,39 @@ def get_settings():
         db.session.commit()
     return s
 
+def min_counselors_for_group(camper_count, cabin_capacities, ratio):
+    """
+    Calculate the minimum counselors needed when assigning camper_count campers
+    across cabins with the given capacities, packing greedily (fill largest cabins
+    first to minimize the number of cabins used, thus minimizing counselors needed).
+
+    Each cabin that receives any campers needs ceil(campers_in_cabin / ratio)
+    counselors.
+    """
+    if camper_count == 0:
+        return 0
+
+    # Sort descending so we fill largest cabins first (fewest cabins used)
+    sorted_caps = sorted(cabin_capacities, reverse=True)
+    remaining = camper_count
+    total_counselors = 0
+
+    for cap in sorted_caps:
+        if remaining <= 0:
+            break
+        campers_here = min(remaining, cap)
+        total_counselors += math.ceil(campers_here / ratio)
+        remaining -= campers_here
+
+    return total_counselors
 
 def generate_assignments():
     """
     Greedy assignment algorithm:
     - Each unit gets assigned to cabin(s) that fit their total headcount
-    - Counselor ratio is respected (min counselors = ceil(campers / ratio))
-    - Cabin groups can be used as a combined space
+    - For single cabins: min counselors = ceil(campers / ratio)
+    - For cabin groups: campers are packed greedily across individual cabins,
+      and each occupied cabin must independently meet the ratio requirement
     - Returns list of assignment dicts or error messages
     """
     units = Unit.query.all()
@@ -112,11 +138,13 @@ def generate_assignments():
     spaces = []
     grouped_cabin_ids = set()
     for group in CabinGroup.query.all():
+        cabin_caps = [c.capacity for c in group.cabins]
         spaces.append({
             'type': 'group',
             'id': group.id,
             'name': group.name,
             'capacity': group.combined_capacity(),
+            'cabin_capacities': cabin_caps,
             'display': f"{group.name} (combined: {', '.join(c.name for c in group.cabins)})",
         })
         for c in group.cabins:
@@ -129,6 +157,7 @@ def generate_assignments():
                 'id': cabin.id,
                 'name': cabin.name,
                 'capacity': cabin.capacity,
+                'cabin_capacities': [cabin.capacity],
                 'display': cabin.name,
             })
 
@@ -139,21 +168,30 @@ def generate_assignments():
     errors = []
 
     for unit in units:
-        needed_counselors = math.ceil(unit.camper_count / ratio) if unit.camper_count > 0 else 0
-        actual_counselors = unit.counselor_count
-        if actual_counselors < needed_counselors:
-            errors.append(
-                f"Unit '{unit.name}' has {actual_counselors} counselor(s) but needs at least "
-                f"{needed_counselors} for {unit.camper_count} campers (ratio 1:{ratio})."
-            )
-
         total = unit.total_people()
+
         # Find smallest space that fits
         chosen = None
         for space in available:
             if space['capacity'] >= total:
                 chosen = space
                 break
+
+        # Calculate min counselors required based on chosen space type
+        if chosen:
+            needed_counselors = min_counselors_for_group(
+                unit.camper_count, chosen['cabin_capacities'], ratio
+            )
+        else:
+            # No space found — still compute based on a single-cabin assumption for reporting
+            needed_counselors = math.ceil(unit.camper_count / ratio) if unit.camper_count > 0 else 0
+ 
+        actual_counselors = unit.counselor_count
+        if actual_counselors < needed_counselors:
+            errors.append(
+                f"Unit '{unit.name}' has {actual_counselors} counselor(s) but needs at least "
+                f"{needed_counselors} for {unit.camper_count} campers in '{chosen['display'] if chosen else 'assigned space'}' (ratio 1:{ratio})."
+            )
 
         if chosen:
             available.remove(chosen)

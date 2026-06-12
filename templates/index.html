@@ -142,6 +142,9 @@
                 <td>
                   <div class="actions-bar">
                     <button class="btn btn-ghost btn-sm" onclick="openEditCabin({{ c.id }}, '{{ c.name }}', {{ c.capacity }})">Edit</button>
+                    <form method="POST" action="{{ url_for('duplicate_cabin', cabin_id=c.id) }}">
+                      <button class="btn btn-ghost btn-sm" title="Duplicate">⧉</button>
+                    </form>
                     <form method="POST" action="{{ url_for('delete_cabin', cabin_id=c.id) }}" onsubmit="return confirm('Delete cabin {{ c.name }}?')">
                       <button class="btn btn-danger btn-sm">✕</button>
                     </form>
@@ -164,14 +167,17 @@
         <button class="btn btn-amber btn-sm" onclick="openModal('addGroupModal')">+ New Group</button>
       </div>
       <div class="card-body">
-        <p class="section-intro">Mark cabins that can open into each other and function as one larger space. Grouped cabins will be treated as a single unit with their combined capacity during assignment.</p>
+        <p class="section-intro">Mark cabins that can open into each other. During assignment, any subset of a group's cabins can be used together as one combined space.</p>
         {% if groups %}
           {% for g in groups %}
           <div style="border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin-bottom: 0.75rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
               <strong style="font-family: 'Playfair Display', serif;">{{ g.name }}</strong>
               <div class="actions-bar">
-                <span class="badge badge-amber">Combined: {{ g.combined_capacity() }} people</span>
+                <span class="badge badge-amber">Max: {{ g.combined_capacity() }} people</span>
+                <form method="POST" action="{{ url_for('duplicate_group', group_id=g.id) }}">
+                  <button class="btn btn-ghost btn-sm" title="Duplicate group">⧉</button>
+                </form>
                 <form method="POST" action="{{ url_for('delete_group', group_id=g.id) }}" onsubmit="return confirm('Remove group {{ g.name }}?')">
                   <button class="btn btn-danger btn-sm">✕</button>
                 </form>

@@ -1,7 +1,8 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
 import json
 import math
+from itertools import combinations
 import os
 
 app = Flask(__name__)
@@ -80,10 +81,6 @@ class Assignment(db.Model):
     def result(self):
         return json.loads(self.result_json)
 
-# ─── Create tables on startup ────────────────────────────────────────────────
-
-with app.app_context():
-    db.create_all()
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -95,117 +92,176 @@ def get_settings():
         db.session.commit()
     return s
 
-def min_counselors_for_group(camper_count, cabin_capacities, ratio):
-    """
-    Calculate the minimum counselors needed when assigning camper_count campers
-    across cabins with the given capacities, packing greedily (fill largest cabins
-    first to minimize the number of cabins used, thus minimizing counselors needed).
 
-    Each cabin that receives any campers needs ceil(campers_in_cabin / ratio)
-    counselors.
+def min_counselors_for_cabins(camper_count, cabin_capacities, ratio):
+    """
+    Minimum counselors needed to place camper_count campers across the given
+    cabin capacities, packing largest-first so fewest cabins are occupied.
+    Each occupied cabin independently needs ceil(its_campers / ratio) counselors.
+    Returns None if campers don't fit in the combined capacity.
     """
     if camper_count == 0:
         return 0
+    if sum(cabin_capacities) < camper_count:
+        return None  # doesn't fit
 
-    # Sort descending so we fill largest cabins first (fewest cabins used)
     sorted_caps = sorted(cabin_capacities, reverse=True)
     remaining = camper_count
     total_counselors = 0
-
     for cap in sorted_caps:
         if remaining <= 0:
             break
-        campers_here = min(remaining, cap)
-        total_counselors += math.ceil(campers_here / ratio)
-        remaining -= campers_here
-
+        here = min(remaining, cap)
+        total_counselors += math.ceil(here / ratio)
+        remaining -= here
     return total_counselors
 
-def generate_assignments():
-    """
-    Greedy assignment algorithm:
-    - Each unit gets assigned to cabin(s) that fit their total headcount
-    - For single cabins: min counselors = ceil(campers / ratio)
-    - For cabin groups: campers are packed greedily across individual cabins,
-      and each occupied cabin must independently meet the ratio requirement
-    - Returns list of assignment dicts or error messages
-    """
-    units = Unit.query.all()
-    settings = get_settings()
-    ratio = settings.camper_to_counselor_ratio
 
-    # Build list of available "spaces" (single cabins + combined groups)
-    spaces = []
+def build_candidate_spaces(ratio, camper_count_hint=None):
+    """
+    Build every possible assignable space:
+      - Each standalone cabin as a single-element space
+      - Every non-empty subset of each cabin group
+
+    Each space dict contains:
+      cabin_ids   : frozenset of cabin IDs consumed
+      capacity    : total capacity of the subset
+      cabin_caps  : list of individual capacities (for counselor calc)
+      display     : human-readable label
+      size_score  : total capacity (used for sorting)
+    """
     grouped_cabin_ids = set()
+    spaces = []
+
     for group in CabinGroup.query.all():
-        cabin_caps = [c.capacity for c in group.cabins]
-        spaces.append({
-            'type': 'group',
-            'id': group.id,
-            'name': group.name,
-            'capacity': group.combined_capacity(),
-            'cabin_capacities': cabin_caps,
-            'display': f"{group.name} (combined: {', '.join(c.name for c in group.cabins)})",
-        })
-        for c in group.cabins:
-            grouped_cabin_ids.add(c.id)
+        group_cabins = list(group.cabins)
+        grouped_cabin_ids.update(c.id for c in group_cabins)
+        n = len(group_cabins)
+        # All non-empty subsets
+        for r in range(1, n + 1):
+            for subset in combinations(group_cabins, r):
+                cap = sum(c.capacity for c in subset)
+                if r == 1:
+                    label = f"{subset[0].name} (from group {group.name})"
+                elif r == n:
+                    label = f"{group.name} (full: {', '.join(c.name for c in subset)})"
+                else:
+                    label = f"{group.name} — {', '.join(c.name for c in subset)}"
+                spaces.append({
+                    'cabin_ids': frozenset(c.id for c in subset),
+                    'capacity': cap,
+                    'cabin_caps': [c.capacity for c in subset],
+                    'display': label,
+                })
 
     for cabin in Cabin.query.all():
         if cabin.id not in grouped_cabin_ids:
             spaces.append({
-                'type': 'cabin',
-                'id': cabin.id,
-                'name': cabin.name,
+                'cabin_ids': frozenset([cabin.id]),
                 'capacity': cabin.capacity,
-                'cabin_capacities': [cabin.capacity],
+                'cabin_caps': [cabin.capacity],
                 'display': cabin.name,
             })
 
-    spaces.sort(key=lambda s: s['capacity'])
+    return spaces
 
-    results = []
-    available = list(spaces)
+
+def generate_assignments():
+    """
+    Backtracking assignment algorithm:
+
+    Because cabin groups now allow any subset of their cabins to be used
+    together, the space of candidates is exponential and a greedy approach
+    can fail even when a valid assignment exists. We use backtracking:
+
+    1. Build all candidate spaces (standalone cabins + every non-empty
+       subset of every group).
+    2. Sort units hardest-to-place first (fewest fitting spaces).
+    3. For each unit try every candidate space that:
+         a. Has enough combined capacity for campers + required counselors
+         b. Uses only cabins not yet consumed
+       Recurse. If we reach a dead end, backtrack and try the next option.
+    4. Return the first complete solution, or the best partial solution
+       (most units placed) if no complete solution exists.
+    """
+    units = Unit.query.all()
+    if not units:
+        return [], []
+
+    settings = get_settings()
+    ratio = settings.camper_to_counselor_ratio
+
+    all_spaces = build_candidate_spaces(ratio)
+
+    # Pre-filter: for each unit, which spaces could possibly fit it?
+    def valid_spaces_for(unit, used_cabin_ids):
+        result = []
+        total_campers = unit.camper_count
+        for sp in all_spaces:
+            if sp['cabin_ids'] & used_cabin_ids:
+                continue  # cabins already taken
+            needed = min_counselors_for_cabins(total_campers, sp['cabin_caps'], ratio)
+            if needed is None:
+                continue  # campers alone don't fit
+            if sp['capacity'] < total_campers + unit.counselor_count:
+                continue  # total people don't fit
+            result.append((sp, needed))
+        # Prefer tightest fit (least overflow) to leave bigger spaces for bigger units
+        result.sort(key=lambda x: x[0]['capacity'])
+        return result
+
+    # Sort units hardest-first: fewest valid spaces when nothing is used yet
+    unit_order = sorted(units, key=lambda u: len(valid_spaces_for(u, frozenset())))
+
+    best = [{}]  # best partial solution found so far: {unit_id: (space, needed_counselors)}
+
+    def backtrack(idx, used_cabin_ids, current):
+        if len(current) > len(best[0]):
+            best[0] = dict(current)
+        if idx == len(unit_order):
+            return True  # complete solution
+
+        unit = unit_order[idx]
+        candidates = valid_spaces_for(unit, used_cabin_ids)
+
+        for sp, needed in candidates:
+            current[unit.id] = (sp, needed)
+            new_used = used_cabin_ids | sp['cabin_ids']
+            if backtrack(idx + 1, new_used, current):
+                return True
+            del current[unit.id]
+
+        # Also try leaving this unit unassigned and continuing
+        backtrack(idx + 1, used_cabin_ids, current)
+        return False
+
+    backtrack(0, frozenset(), {})
+    solution = best[0]
+
     errors = []
-
+    results = []
     for unit in units:
-        total = unit.total_people()
-
-        # Find smallest space that fits
-        chosen = None
-        for space in available:
-            if space['capacity'] >= total:
-                chosen = space
-                break
-
-        # Calculate min counselors required based on chosen space type
-        if chosen:
-            needed_counselors = min_counselors_for_group(
-                unit.camper_count, chosen['cabin_capacities'], ratio
-            )
-        else:
-            # No space found — still compute based on a single-cabin assumption for reporting
-            needed_counselors = math.ceil(unit.camper_count / ratio) if unit.camper_count > 0 else 0
- 
-        actual_counselors = unit.counselor_count
-        if actual_counselors < needed_counselors:
-            errors.append(
-                f"Unit '{unit.name}' has {actual_counselors} counselor(s) but needs at least "
-                f"{needed_counselors} for {unit.camper_count} campers in '{chosen['display'] if chosen else 'assigned space'}' (ratio 1:{ratio})."
-            )
-
-        if chosen:
-            available.remove(chosen)
+        if unit.id in solution:
+            sp, needed_counselors = solution[unit.id]
+            total = unit.camper_count + unit.counselor_count
+            actual_counselors = unit.counselor_count
+            if actual_counselors < needed_counselors:
+                errors.append(
+                    f"Unit '{unit.name}' has {actual_counselors} counselor(s) but needs at least "
+                    f"{needed_counselors} for {unit.camper_count} campers in '{sp['display']}' (ratio 1:{ratio})."
+                )
             results.append({
                 'unit': unit.name,
                 'campers': unit.camper_count,
                 'counselors': unit.counselor_count,
                 'min_counselors_required': needed_counselors,
-                'space': chosen['display'],
-                'capacity': chosen['capacity'],
-                'overflow': chosen['capacity'] - total,
+                'space': sp['display'],
+                'capacity': sp['capacity'],
+                'overflow': sp['capacity'] - total,
                 'ok': True,
             })
         else:
+            needed_counselors = math.ceil(unit.camper_count / ratio) if unit.camper_count > 0 else 0
             results.append({
                 'unit': unit.name,
                 'campers': unit.camper_count,
@@ -297,6 +353,16 @@ def edit_cabin(cabin_id):
     return redirect(url_for('index'))
 
 
+@app.route('/cabins/<int:cabin_id>/duplicate', methods=['POST'])
+def duplicate_cabin(cabin_id):
+    cabin = Cabin.query.get_or_404(cabin_id)
+    new_cabin = Cabin(name=f"{cabin.name} (copy)", capacity=cabin.capacity)
+    db.session.add(new_cabin)
+    db.session.commit()
+    flash(f'Cabin "{cabin.name}" duplicated.', 'success')
+    return redirect(url_for('index'))
+
+
 @app.route('/cabins/<int:cabin_id>/delete', methods=['POST'])
 def delete_cabin(cabin_id):
     cabin = Cabin.query.get_or_404(cabin_id)
@@ -326,6 +392,21 @@ def add_group():
             cabin.group_id = group.id
     db.session.commit()
     flash(f'Cabin group "{name}" created.', 'success')
+    return redirect(url_for('index'))
+
+
+@app.route('/groups/<int:group_id>/duplicate', methods=['POST'])
+def duplicate_group(group_id):
+    group = CabinGroup.query.get_or_404(group_id)
+    # Duplicate each cabin in the group as new standalone cabins, then create a new group
+    new_group = CabinGroup(name=f"{group.name} (copy)")
+    db.session.add(new_group)
+    db.session.flush()
+    for cabin in group.cabins:
+        new_cabin = Cabin(name=f"{cabin.name} (copy)", capacity=cabin.capacity, group_id=new_group.id)
+        db.session.add(new_cabin)
+    db.session.commit()
+    flash(f'Cabin group "{group.name}" duplicated.', 'success')
     return redirect(url_for('index'))
 
 
@@ -378,4 +459,6 @@ def delete_assignment(assignment_id):
 
 
 if __name__ == '__main__':
-    app.run(debug=False)
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
